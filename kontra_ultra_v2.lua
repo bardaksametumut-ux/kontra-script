@@ -18,7 +18,7 @@ local LP           = Players.LocalPlayer
 local Cfg = {
     Aimbot = {
         Enabled       = true,
-        Key           = Enum.KeyCode.Q,
+        Key           = Enum.KeyCode.E,
         FOV           = 200,
         Smoothness    = 0.12,
         Part          = "Head",
@@ -710,16 +710,48 @@ local function MakeKeybind(parent, label, getCfg, setCfg)
     local listening=false
     kBtn.MouseButton1Click:Connect(function()
         if listening then return end
-        listening=true; waitingForKey=true
-        kBtn.Text="..."; kBtn.BackgroundColor3=Color3.fromRGB(200,100,30)
-        local conn; conn=UIS.InputBegan:Connect(function(inp, gp)
-            if gp then return end
-            if inp.UserInputType == Enum.UserInputType.Keyboard then
-                pcall(function() setCfg(inp.KeyCode) end)
-                kBtn.Text="[ "..inp.KeyCode.Name.." ]"
-                kBtn.BackgroundColor3=PURPLE2
-                listening=false; waitingForKey=false
-                conn:Disconnect()
+        listening=true
+        kBtn.Text="Bas..."; kBtn.BackgroundColor3=Color3.fromRGB(200,100,30)
+
+        -- Güvenli dinleyici: sadece kısa süre bekler, oyunu bloke etmez
+        task.spawn(function()
+            local deadline = tick() + 6 -- 6 saniye bekle, sonra iptal
+            while listening and tick() < deadline do
+                -- Her frame'de hangi tuşa basıldığını kontrol et
+                -- Bu yöntem UIS.InputBegan'ı hook etmez, oyunu dondurmaz
+                local pressed = nil
+                for _, key in ipairs(Enum.KeyCode:GetEnumItems()) do
+                    local ok, down = pcall(function()
+                        return UIS:IsKeyDown(key)
+                    end)
+                    if ok and down then
+                        -- RightShift ve mouse tuşlarını atla
+                        local name = key.Name
+                        if name ~= "RightShift" and name ~= "LeftShift"
+                        and name ~= "Unknown" and name ~= "World0" then
+                            pressed = key
+                            break
+                        end
+                    end
+                end
+
+                if pressed then
+                    pcall(function() setCfg(pressed) end)
+                    kBtn.Text = "[ "..pressed.Name.." ]"
+                    kBtn.BackgroundColor3 = PURPLE2
+                    listening = false
+                    -- tuş bırakılana kadar kısa bekle (tekrar tetiklenmesin)
+                    task.wait(0.3)
+                    break
+                end
+                task.wait(0.05)
+            end
+
+            -- Süre doldu, iptal
+            if listening then
+                kBtn.Text = "[ "..getCfg().Name.." ]"
+                kBtn.BackgroundColor3 = PURPLE2
+                listening = false
             end
         end)
     end)
