@@ -1,5 +1,5 @@
 -- ╔══════════════════════════════════════════════════════════════╗
--- ║     BLOXSTRIKE ULTRA v9.0  |  Fixed Build                  ║
+-- ║     BLOXSTRIKE ULTRA v10.0  |  Drawing ESP Build           ║
 -- ║  ESP · Aimbot · SkinChanger · BigHead · Ayar Kaydet        ║
 -- ║  RightShift = Menü  |  E basılı = Aimbot                   ║
 -- ╚══════════════════════════════════════════════════════════════╝
@@ -90,98 +90,93 @@ end
 -- workspace.Characters.Terrorists / Counter-Terrorists
 -- ════════════════════════════════════════════════════════════════
 local CharFolder, TFolder, CTFolder
+local myTeamFolder = nil -- hangi klasördeyiz
 
 -- workspace.Characters klasörünü bekle
 task.spawn(function()
-    CharFolder = workspace:WaitForChild("Characters", 20)
+    CharFolder = workspace:WaitForChild("Characters", 25)
     if CharFolder then
-        TFolder  = CharFolder:WaitForChild("Terrorists", 10)
-        CTFolder = CharFolder:WaitForChild("Counter-Terrorists", 10)
-        print("[v9] workspace.Characters bulundu ✅")
-        print("[v9] T:", TFolder and "✅" or "❌", "CT:", CTFolder and "✅" or "❌")
+        TFolder  = CharFolder:WaitForChild("Terrorists", 15)
+        CTFolder = CharFolder:WaitForChild("Counter-Terrorists", 15)
+        print("[v10] workspace.Characters bulundu ✅")
+        print("[v10] T:", TFolder and "✅" or "❌", "CT:", CTFolder and "✅" or "❌")
     else
-        print("[v9] workspace.Characters yok — standart Players modu")
+        print("[v10] workspace.Characters yok — standart Players modu")
     end
 end)
 
--- LP'nin kendi karakterini döndür (BloxStrike'ta LP.Character nil olabilir)
+-- LP'nin kendi karakterini döndür
 local function GetMyChar()
-    -- Önce standart yolu dene
-    local c = LP.Character
-    if c and c.Parent then return c end
-    -- workspace.Characters altında ara
+    -- workspace.Characters altında ara (BloxStrike'ta LP.Character nil)
     if TFolder then
         local f = TFolder:FindFirstChild(LP.Name)
-        if f then return f end
+        if f then myTeamFolder = "T"; return f end
     end
     if CTFolder then
         local f = CTFolder:FindFirstChild(LP.Name)
-        if f then return f end
+        if f then myTeamFolder = "CT"; return f end
     end
-    -- Fallback: tüm Players
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p == LP and p.Character then return p.Character end
-    end
+    -- Standart yol
+    local c = LP.Character
+    if c and c.Parent then return c end
     return nil
 end
 
 -- LP'nin hangi takımda olduğunu döndür
 local function GetMyTeam()
-    -- LP.TeamColor / LP.Team dene
-    if LP.Team then
-        local tn = LP.Team.Name
-        if tn:lower():find("terror") then return "T"
-        elseif tn:lower():find("counter") then return "CT"
-        end
-    end
-    -- workspace.Characters klasörlerine bak
+    -- Önce workspace klasöründe bul (en güvenilir)
     if TFolder and TFolder:FindFirstChild(LP.Name) then return "T" end
     if CTFolder and CTFolder:FindFirstChild(LP.Name) then return "CT" end
+    -- LP.Team fallback
+    if LP.Team then
+        local tn = LP.Team.Name:lower()
+        if tn:find("terror") and not tn:find("counter") then return "T" end
+        if tn:find("counter") then return "CT" end
+    end
+    return nil
+end
+
+-- Düşman klasörünü döndür
+local function GetEnemyFolder()
+    local team = GetMyTeam()
+    if team == "T" then return CTFolder end
+    if team == "CT" then return TFolder end
     return nil
 end
 
 -- Tüm düşmanları döndür
 local function GetEnemies()
-    local myTeam = GetMyTeam()
     local list = {}
+    local myTeam = GetMyTeam()
 
     if TFolder and CTFolder then
-        local function scan(folder, team)
-            if not folder then return end
-            for _, char in ipairs(folder:GetChildren()) do
-                -- Kendi karakterimizi atla
+        -- BloxStrike modu: sadece DÜŞMAN klasöründen al
+        local enemyFolder = GetEnemyFolder()
+        if enemyFolder then
+            for _, char in ipairs(enemyFolder:GetChildren()) do
                 if char.Name ~= LP.Name then
-                    -- Eğer takım tespiti yapılabiliyorsa sadece düşmanları al
-                    if myTeam == nil or team ~= myTeam then
-                        table.insert(list, {char=char, name=char.Name, team=team})
+                    table.insert(list, {char=char, name=char.Name})
+                end
+            end
+        else
+            -- Takım bulunamadı — sadece kendi olmayanları al
+            local function scanF(f)
+                if not f then return end
+                for _, char in ipairs(f:GetChildren()) do
+                    if char.Name ~= LP.Name then
+                        table.insert(list, {char=char, name=char.Name})
                     end
                 end
             end
-        end
-
-        if myTeam == "T" then
-            scan(CTFolder, "CT")
-        elseif myTeam == "CT" then
-            scan(TFolder, "T")
-        else
-            -- Takım tespit edilemedi — herkesi ekle (kendi hariç)
-            scan(TFolder, "T")
-            scan(CTFolder, "CT")
+            scanF(TFolder); scanF(CTFolder)
         end
     else
-        -- Fallback: Players listesi
+        -- Fallback: Players
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= LP then
-                -- Team kontrolü
-                local sameTeam = false
-                if LP.Team and p.Team and LP.Team == p.Team then
-                    sameTeam = true
-                end
-                if not sameTeam then
-                    local char = p.Character
-                    if char then
-                        table.insert(list, {char=char, name=p.Name, team="?"})
-                    end
+                local sameTeam = LP.Team and p.Team and LP.Team == p.Team
+                if not sameTeam and p.Character then
+                    table.insert(list, {char=p.Character, name=p.Name})
                 end
             end
         end
@@ -189,63 +184,115 @@ local function GetEnemies()
     return list
 end
 
+-- Tüm takım arkadaşlarını döndür (radar için)
+local function GetTeammates()
+    local list = {}
+    local myTeam = GetMyTeam()
+    if myTeam == "T" and TFolder then
+        for _, c in ipairs(TFolder:GetChildren()) do
+            if c.Name ~= LP.Name then table.insert(list, {char=c, name=c.Name}) end
+        end
+    elseif myTeam == "CT" and CTFolder then
+        for _, c in ipairs(CTFolder:GetChildren()) do
+            if c.Name ~= LP.Name then table.insert(list, {char=c, name=c.Name}) end
+        end
+    end
+    return list
+end
+
+-- Karakter canlı mı? (Humanoid kontrolü opsiyonel)
 local function IsAlive(char)
     if not char or not char.Parent then return false end
-    local h = char:FindFirstChildOfClass("Humanoid")
-    return h ~= nil and h.Health > 0
+    -- Herhangi bir part var mı kontrol et
+    local part = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+                 or char:FindFirstChildWhichIsA("BasePart")
+    if not part then return false end
+    -- Humanoid varsa HP kontrol et
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum and hum.Health <= 0 then return false end
+    return true
 end
 
--- Mesafeyi hesapla — LP karakter nil olsa bile çalışır
+-- Karakter HP'si (Humanoid yoksa 100 döndür)
+local function GetHP(char)
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then return hum.Health, hum.MaxHealth end
+    -- Humanoid yoksa alternatif kontrol
+    local hp = char:FindFirstChild("Health") or char:FindFirstChild("HP")
+    if hp and hp:IsA("NumberValue") or hp and hp:IsA("IntValue") then
+        return hp.Value, 100
+    end
+    return 100, 100
+end
+
+-- Karakterin ekrandaki baş pozisyonunu döndür
+local function GetHeadPos(char)
+    local head = char:FindFirstChild("Head")
+    if head then return head.Position + Vector3.new(0, 1.5, 0) end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if hrp then return hrp.Position + Vector3.new(0, 3, 0) end
+    local p = char:FindFirstChildWhichIsA("BasePart")
+    if p then return p.Position + Vector3.new(0, 2, 0) end
+    return nil
+end
+
+-- Karakterin gövde pozisyonunu döndür
+local function GetRootPos(char)
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if hrp then return hrp.Position end
+    local head = char:FindFirstChild("Head")
+    if head then return head.Position end
+    local p = char:FindFirstChildWhichIsA("BasePart")
+    if p then return p.Position end
+    return nil
+end
+
+-- Mesafe hesapla
 local function GetDist(char)
     local myChar = GetMyChar()
-    if not myChar then return 0 end  -- nil ise 0 döndür (göster)
-    local lr = myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("Head")
-    local r  = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
-    if not lr or not r then return 0 end
-    return (r.Position - lr.Position).Magnitude
+    if not myChar then return 0 end
+    local myPos = GetRootPos(myChar)
+    local theirPos = GetRootPos(char)
+    if not myPos or not theirPos then return 0 end
+    return (theirPos - myPos).Magnitude
 end
 
 -- ════════════════════════════════════════════════════════════════
--- BIG HEAD
+-- BIG HEAD (düşmanlara uygula)
 -- ════════════════════════════════════════════════════════════════
-local bigHeadConns = {}
-
-local function ApplyBigHead(char, scale)
-    if not char then return end
-    pcall(function()
-        local head = char:FindFirstChild("Head")
-        if not head then return end
-        local mesh = head:FindFirstChildOfClass("SpecialMesh")
-        if not mesh then
-            mesh = Instance.new("SpecialMesh")
-            mesh.MeshType = Enum.MeshType.Head
-            mesh.Parent = head
-        end
-        mesh.Scale = Vector3.new(scale, scale, scale)
-    end)
-end
-
-local function ApplyBigHeadAll(enable)
-    for _, c in pairs(bigHeadConns) do pcall(function() c:Disconnect() end) end
-    bigHeadConns = {}
-    if not enable then
-        local myChar = GetMyChar()
-        if myChar then
-            local head = myChar:FindFirstChild("Head")
+local function ApplyBigHeadToEnemies()
+    if not Cfg.BigHead.Enabled then return end
+    for _, e in ipairs(GetEnemies()) do
+        pcall(function()
+            local head = e.char:FindFirstChild("Head")
             if head then
                 local mesh = head:FindFirstChildOfClass("SpecialMesh")
-                if mesh then mesh.Scale = Vector3.new(1,1,1) end
+                if not mesh then
+                    mesh = Instance.new("SpecialMesh")
+                    mesh.MeshType = Enum.MeshType.Head
+                    mesh.Parent = head
+                end
+                mesh.Scale = Vector3.new(Cfg.BigHead.Scale, Cfg.BigHead.Scale, Cfg.BigHead.Scale)
             end
-        end
-        return
+        end)
     end
-    local myChar = GetMyChar()
-    if myChar then ApplyBigHead(myChar, Cfg.BigHead.Scale) end
-    local conn = LP.CharacterAdded:Connect(function(c)
-        task.wait(0.5)
-        if Cfg.BigHead.Enabled then ApplyBigHead(c, Cfg.BigHead.Scale) end
-    end)
-    table.insert(bigHeadConns, conn)
+end
+
+local function ResetBigHead()
+    local function resetFolder(f)
+        if not f then return end
+        for _, char in ipairs(f:GetChildren()) do
+            pcall(function()
+                local head = char:FindFirstChild("Head")
+                if head then
+                    local mesh = head:FindFirstChildOfClass("SpecialMesh")
+                    if mesh then mesh.Scale = Vector3.new(1,1,1) end
+                end
+            end)
+        end
+    end
+    if TFolder then resetFolder(TFolder) end
+    if CTFolder then resetFolder(CTFolder) end
 end
 
 -- ════════════════════════════════════════════════════════════════
@@ -263,21 +310,43 @@ local function ApplyKnifeSkin(knifeName)
         if not weaponsFolder then return end
         local knifeAsset = weaponsFolder:FindFirstChild(knifeName)
         if not knifeAsset then return end
+        -- Eski knife'ı gizle
         for _, part in ipairs(existingKnife:GetDescendants()) do
             if part:IsA("BasePart") or part:IsA("MeshPart") then
                 pcall(function() part.Transparency = 1 end)
             end
+            if part:IsA("Texture") or part:IsA("Decal") then
+                pcall(function() part.Transparency = 1 end)
+            end
         end
+        -- Eski skin varsa kaldır
         local oldSkin = existingKnife:FindFirstChild("_SkinKnife")
         if oldSkin then oldSkin:Destroy() end
+        -- Yeni knife'ı klonla
         local newKnife = knifeAsset:Clone()
         newKnife.Name = "_SkinKnife"
+        -- Part ayarları
+        for _, part in ipairs(newKnife:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+                part.Anchored = false
+                part.CastShadow = false
+                part.CanTouch = false
+                part.CanQuery = false
+            end
+        end
         newKnife.Parent = existingKnife
+        -- Weld
         local root = existingKnife:FindFirstChild("Handle") or existingKnife.PrimaryPart
-        if root and newKnife.PrimaryPart then
-            local weld = Instance.new("WeldConstraint")
-            weld.Part0 = root; weld.Part1 = newKnife.PrimaryPart
-            weld.Parent = newKnife
+        if root then
+            for _, part in ipairs(newKnife:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    local weld = Instance.new("WeldConstraint")
+                    weld.Part0 = root
+                    weld.Part1 = part
+                    weld.Parent = part
+                end
+            end
         end
     end)
 end
@@ -300,30 +369,68 @@ local function ApplyBodySkin(presetName)
     if not char then return end
     local preset = BodyPresets[presetName or Cfg.Skin.Preset]
     if not preset then return end
+    -- Önce shirt/pants kaldır (renk görünür olsun)
+    for _, obj in ipairs(char:GetChildren()) do
+        if obj:IsA("Shirt") or obj:IsA("Pants") or obj:IsA("ShirtGraphic") then
+            pcall(function() obj:Destroy() end)
+        end
+    end
+    -- Sonra renk uygula
     for _, part in ipairs(char:GetDescendants()) do
         if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
             pcall(function()
-                if part.Name == "Head" then part.BrickColor = BrickColor.new(preset.face)
-                else part.BrickColor = BrickColor.new(preset.body) end
+                if part.Name == "Head" then
+                    part.BrickColor = BrickColor.new(preset.face)
+                else
+                    part.BrickColor = BrickColor.new(preset.body)
+                end
                 part.Material = Enum.Material.SmoothPlastic
+                -- Texture/Decal varsa kaldır
+                for _, child in ipairs(part:GetChildren()) do
+                    if child:IsA("Texture") or child:IsA("Decal") then
+                        if child.Name ~= "face" then -- yüz decal'ını koru
+                            pcall(function() child.Transparency = 1 end)
+                        end
+                    end
+                end
             end)
-        end
-    end
-    for _, obj in ipairs(char:GetChildren()) do
-        if obj:IsA("Shirt") or obj:IsA("Pants") then
-            pcall(function() obj:Destroy() end)
         end
     end
 end
 
-LP.CharacterAdded:Connect(function(c)
-    task.wait(1.5)
-    if Cfg.Skin.Enabled then ApplyBodySkin(Cfg.Skin.Preset) end
-    if Cfg.BigHead.Enabled then ApplyBigHead(c, Cfg.BigHead.Scale) end
+-- CharacterAdded — BloxStrike'ta LP.CharacterAdded tetiklenmeyebilir
+-- Bu yüzden klasör izleme kullanacağız
+task.spawn(function()
+    task.wait(3)
+    -- Klasördeki kendi karakterimizi izle
+    local function watchMyChar()
+        if TFolder then
+            TFolder.ChildAdded:Connect(function(c)
+                if c.Name == LP.Name then
+                    task.wait(1)
+                    if Cfg.Skin.Enabled then ApplyBodySkin(Cfg.Skin.Preset) end
+                end
+            end)
+        end
+        if CTFolder then
+            CTFolder.ChildAdded:Connect(function(c)
+                if c.Name == LP.Name then
+                    task.wait(1)
+                    if Cfg.Skin.Enabled then ApplyBodySkin(Cfg.Skin.Preset) end
+                end
+            end)
+        end
+    end
+    watchMyChar()
+    -- Standart fallback
+    LP.CharacterAdded:Connect(function(c)
+        task.wait(1.5)
+        if Cfg.Skin.Enabled then ApplyBodySkin(Cfg.Skin.Preset) end
+    end)
 end)
 
 -- ════════════════════════════════════════════════════════════════
--- RAINBOW
+-- RAINBOW (kıyafet dahil düzeltildi)
 -- ════════════════════════════════════════════════════════════════
 local hue = 0
 RunService.Heartbeat:Connect(function(dt)
@@ -332,9 +439,26 @@ RunService.Heartbeat:Connect(function(dt)
     if Cfg.Rainbow.Character then
         local char = GetMyChar()
         if char then
+            -- Shirt/Pants kaldır ki renk görünsün
+            for _, obj in ipairs(char:GetChildren()) do
+                if obj:IsA("Shirt") or obj:IsA("Pants") or obj:IsA("ShirtGraphic") then
+                    pcall(function() obj:Destroy() end)
+                end
+            end
             for _, p in ipairs(char:GetDescendants()) do
                 if (p:IsA("BasePart") or p:IsA("MeshPart")) and p.Name ~= "HumanoidRootPart" then
-                    pcall(function() p.Color = col end)
+                    pcall(function()
+                        p.Color = col
+                        p.Material = Enum.Material.Neon
+                        -- Texture'ları da gizle
+                        for _, child in ipairs(p:GetChildren()) do
+                            if child:IsA("Texture") or child:IsA("Decal") then
+                                if child.Name ~= "face" then
+                                    pcall(function() child.Transparency = 1 end)
+                                end
+                            end
+                        end
+                    end)
                 end
             end
         end
@@ -343,7 +467,7 @@ RunService.Heartbeat:Connect(function(dt)
         for _, obj in ipairs(Camera:GetChildren()) do
             for _, p in ipairs(obj:GetDescendants()) do
                 if p:IsA("BasePart") or p:IsA("MeshPart") then
-                    pcall(function() p.Color = col end)
+                    pcall(function() p.Color = col; p.Material = Enum.Material.Neon end)
                 end
             end
         end
@@ -372,7 +496,7 @@ local function SetLight(name)
 end
 
 -- ════════════════════════════════════════════════════════════════
--- CHAMS
+-- CHAMS (Highlight)
 -- ════════════════════════════════════════════════════════════════
 local CHL = {}
 local function SetChams(char, id, on)
@@ -393,193 +517,208 @@ local function RefreshChams()
 end
 
 -- ════════════════════════════════════════════════════════════════
--- ESP — BillboardGui
+-- ESP — Drawing API (BillboardGui yerine)
 -- ════════════════════════════════════════════════════════════════
-local Boards = {}
+local drawOK = false
+pcall(function()
+    local test = Drawing.new("Line")
+    test:Remove()
+    drawOK = true
+end)
 
-local function BuildBoard(char, playerName)
-    -- Eski board varsa temizle
-    if Boards[playerName] then
-        pcall(function() Boards[playerName].bb:Destroy() end)
-        if Boards[playerName].conn then Boards[playerName].conn:Disconnect() end
-        Boards[playerName] = nil
-    end
+-- Her düşman için Drawing nesneleri
+local ESPDrawings = {} -- [playerName] = {name=Drawing, dist=Drawing, hpBg=Drawing, hpFill=Drawing, box=...}
 
-    local head = char:WaitForChild("Head", 10)
-    if not head then return end
+local function CreateESPDraw(playerName)
+    if ESPDrawings[playerName] then return end -- zaten var
+    local d = {}
+    -- İsim text
+    d.name = Drawing.new("Text")
+    d.name.Size = 14; d.name.Center = true; d.name.Outline = true
+    d.name.Font = Drawing.Fonts.Plex; d.name.Visible = false
+    d.name.Color = Cfg.ESP.EnemyColor
 
-    local bb = Instance.new("BillboardGui")
-    bb.Adornee      = head
-    bb.Size         = UDim2.new(0, 170, 0, 68)
-    bb.StudsOffset  = Vector3.new(0, 3.5, 0)
-    bb.AlwaysOnTop  = true
-    bb.ResetOnSpawn = false
-    bb.LightInfluence= 0
-    bb.Enabled      = true
-    bb.Parent       = head
-
-    -- İsim
-    local nameL = Instance.new("TextLabel")
-    nameL.Size=UDim2.new(1,0,0,24); nameL.Position=UDim2.new(0,0,0,0)
-    nameL.BackgroundTransparency=1; nameL.Font=Enum.Font.GothamBold; nameL.TextSize=15
-    nameL.TextStrokeTransparency=0; nameL.TextStrokeColor3=Color3.new(0,0,0)
-    nameL.TextColor3=Cfg.ESP.EnemyColor; nameL.Text=playerName; nameL.Parent=bb
-
-    -- HP yazı
-    local hpL = Instance.new("TextLabel")
-    hpL.Size=UDim2.new(1,0,0,18); hpL.Position=UDim2.new(0,0,0,24)
-    hpL.BackgroundTransparency=1; hpL.Font=Enum.Font.Gotham; hpL.TextSize=12
-    hpL.TextStrokeTransparency=0; hpL.TextStrokeColor3=Color3.new(0,0,0)
-    hpL.TextColor3=Color3.fromRGB(210,210,210); hpL.Parent=bb
+    -- HP + mesafe text
+    d.info = Drawing.new("Text")
+    d.info.Size = 12; d.info.Center = true; d.info.Outline = true
+    d.info.Font = Drawing.Fonts.Plex; d.info.Visible = false
+    d.info.Color = Color3.fromRGB(210,210,210)
 
     -- HP bar arka plan
-    local hpBG = Instance.new("Frame")
-    hpBG.Size=UDim2.new(0.92,0,0,6); hpBG.Position=UDim2.new(0.04,0,1,-10)
-    hpBG.BackgroundColor3=Color3.fromRGB(20,20,20); hpBG.BorderSizePixel=0; hpBG.Parent=bb
-    Instance.new("UICorner",hpBG).CornerRadius=UDim.new(1,0)
+    d.hpBg = Drawing.new("Line")
+    d.hpBg.Thickness = 4; d.hpBg.Visible = false
+    d.hpBg.Color = Color3.fromRGB(20,20,20)
 
-    -- HP bar dolu kısım
-    local hpF = Instance.new("Frame")
-    hpF.Size=UDim2.new(1,0,1,0); hpF.BackgroundColor3=Color3.fromRGB(50,220,80)
-    hpF.BorderSizePixel=0; hpF.Parent=hpBG
-    Instance.new("UICorner",hpF).CornerRadius=UDim.new(1,0)
+    -- HP bar fill
+    d.hpFill = Drawing.new("Line")
+    d.hpFill.Thickness = 3; d.hpFill.Visible = false
+    d.hpFill.Color = Color3.fromRGB(50,220,80)
 
-    local data = {bb=bb, nameL=nameL, hpL=hpL, hpF=hpF, hpBG=hpBG, conn=nil}
-    Boards[playerName] = data
+    -- Box (dikdörtgen)
+    d.boxTL = Drawing.new("Line"); d.boxTL.Thickness=1; d.boxTL.Visible=false; d.boxTL.Color=Cfg.ESP.EnemyColor
+    d.boxTR = Drawing.new("Line"); d.boxTR.Thickness=1; d.boxTR.Visible=false; d.boxTR.Color=Cfg.ESP.EnemyColor
+    d.boxBL = Drawing.new("Line"); d.boxBL.Thickness=1; d.boxBL.Visible=false; d.boxBL.Color=Cfg.ESP.EnemyColor
+    d.boxBR = Drawing.new("Line"); d.boxBR.Thickness=1; d.boxBR.Visible=false; d.boxBR.Color=Cfg.ESP.EnemyColor
 
-    data.conn = RunService.RenderStepped:Connect(function()
-        pcall(function()
-            -- Temel kontroller
-            if not Cfg.ESP.Enabled then bb.Enabled=false; return end
-            if not char or not char.Parent then bb.Enabled=false; return end
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if not hum or hum.Health <= 0 then bb.Enabled=false; return end
+    -- Tracker line (ekran ortasından düşmana çizgi)
+    d.tracer = Drawing.new("Line")
+    d.tracer.Thickness = 1; d.tracer.Visible = false
+    d.tracer.Color = Cfg.ESP.EnemyColor; d.tracer.Transparency = 0.5
 
-            -- Mesafe kontrolü
-            local dist = GetDist(char)
-            if dist > Cfg.ESP.MaxDist then bb.Enabled=false; return end
-
-            bb.Enabled = true
-
-            -- İsim
-            nameL.Visible   = Cfg.ESP.Name
-            nameL.Text      = playerName
-            nameL.TextColor3= Cfg.ESP.EnemyColor
-
-            -- HP + mesafe metni
-            if Cfg.ESP.Distance then
-                hpL.Visible = true
-                hpL.Text = string.format("%.0f  HP: %.0f", dist, hum.Health)
-            elseif Cfg.ESP.Health then
-                hpL.Visible = true
-                hpL.Text = string.format("HP: %.0f / %.0f", hum.Health, hum.MaxHealth)
-            else
-                hpL.Visible = false
-            end
-
-            -- HP bar
-            hpBG.Visible = Cfg.ESP.Health
-            if Cfg.ESP.Health then
-                local r = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-                hpF.Size = UDim2.new(r, 0, 1, 0)
-                hpF.BackgroundColor3 = Color3.fromRGB(
-                    math.floor((1-r)*255), math.floor(r*220), 0)
-            end
-        end)
-    end)
-
-    -- Karakter gittiğinde temizle
-    char.AncestryChanged:Connect(function(_, par)
-        if not par then
-            pcall(function() bb:Destroy() end)
-            if data.conn then data.conn:Disconnect() end
-            if Boards[playerName] == data then Boards[playerName] = nil end
-        end
-    end)
-
-    print("[v9 ESP] Board oluşturuldu:", playerName)
+    ESPDrawings[playerName] = d
 end
 
--- Klasörü izle
-local function WatchFolder(folder, teamName)
-    if not folder then return end
-    -- Mevcut karakterler
-    for _, char in ipairs(folder:GetChildren()) do
-        if char.Name ~= LP.Name then
-            task.spawn(function()
-                task.wait(0.3)
-                if IsAlive(char) then
-                    pcall(function() BuildBoard(char, char.Name) end)
-                end
-            end)
-        end
-    end
-    -- Yeni karakterler
-    folder.ChildAdded:Connect(function(char)
-        if char.Name ~= LP.Name then
-            task.spawn(function()
-                task.wait(0.5)
-                if IsAlive(char) then
-                    pcall(function() BuildBoard(char, char.Name) end)
-                end
-            end)
-        end
-    end)
-    -- Giden karakterler
-    folder.ChildRemoved:Connect(function(char)
-        if Boards[char.Name] then
-            pcall(function() Boards[char.Name].bb:Destroy() end)
-            if Boards[char.Name].conn then Boards[char.Name].conn:Disconnect() end
-            Boards[char.Name] = nil
-        end
-        if CHL[char.Name] then
-            pcall(function() CHL[char.Name]:Destroy() end)
-            CHL[char.Name] = nil
-        end
+local function HideESPDraw(d)
+    if not d then return end
+    pcall(function()
+        d.name.Visible = false
+        d.info.Visible = false
+        d.hpBg.Visible = false
+        d.hpFill.Visible = false
+        d.boxTL.Visible = false; d.boxTR.Visible = false
+        d.boxBL.Visible = false; d.boxBR.Visible = false
+        d.tracer.Visible = false
     end)
 end
 
--- Ana ESP başlatıcı
-task.spawn(function()
-    local cf = workspace:WaitForChild("Characters", 25)
-    if not cf then
-        print("[v9] Characters yok — Players fallback")
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= LP and p.Character then
-                task.spawn(function() pcall(function() BuildBoard(p.Character, p.Name) end) end)
-            end
-        end
-        Players.PlayerAdded:Connect(function(p)
-            p.CharacterAdded:Connect(function(c)
-                task.wait(0.5)
-                pcall(function() BuildBoard(c, p.Name) end)
-            end)
-        end)
+local function RemoveESPDraw(playerName)
+    local d = ESPDrawings[playerName]
+    if not d then return end
+    pcall(function()
+        d.name:Remove(); d.info:Remove()
+        d.hpBg:Remove(); d.hpFill:Remove()
+        d.boxTL:Remove(); d.boxTR:Remove()
+        d.boxBL:Remove(); d.boxBR:Remove()
+        d.tracer:Remove()
+    end)
+    ESPDrawings[playerName] = nil
+end
+
+local function UpdateESP()
+    if not drawOK then return end
+    if not Cfg.ESP.Enabled then
+        for name, d in pairs(ESPDrawings) do HideESPDraw(d) end
         return
     end
-    CharFolder = cf
-    local tf  = cf:WaitForChild("Terrorists", 10)
-    local ctf = cf:WaitForChild("Counter-Terrorists", 10)
-    TFolder = tf; CTFolder = ctf
 
-    -- Her iki klasörü de izle (takım bilgisi ESP build'e geçmez, GetMyTeam ile kontrol edilir)
-    WatchFolder(tf,  "T")
-    WatchFolder(ctf, "CT")
-end)
+    local vp = Camera.ViewportSize
+    local center = Vector2.new(vp.X/2, vp.Y)
 
--- Periyodik kontrol: yeni düşmanlar kaçırılmış olabilir
-task.spawn(function()
-    while task.wait(5) do
-        for _, e in ipairs(GetEnemies()) do
-            if IsAlive(e.char) and not Boards[e.name] then
-                task.spawn(function()
-                    pcall(function() BuildBoard(e.char, e.name) end)
-                end)
-            end
+    -- Şu anki düşmanları al
+    local enemies = GetEnemies()
+    local activeNames = {}
+
+    for _, e in ipairs(enemies) do
+        activeNames[e.name] = true
+        if not IsAlive(e.char) then
+            HideESPDraw(ESPDrawings[e.name])
+            continue
         end
-        if Cfg.Chams.Enabled then RefreshChams() end
+
+        local headPos = GetHeadPos(e.char)
+        local rootPos = GetRootPos(e.char)
+        if not headPos or not rootPos then
+            HideESPDraw(ESPDrawings[e.name])
+            continue
+        end
+
+        local sp, onScreen = Camera:WorldToViewportPoint(headPos)
+        local spRoot, _ = Camera:WorldToViewportPoint(rootPos)
+        local spFeet, _ = Camera:WorldToViewportPoint(rootPos - Vector3.new(0, 3, 0))
+
+        if not onScreen then
+            HideESPDraw(ESPDrawings[e.name])
+            continue
+        end
+
+        local dist = GetDist(e.char)
+        if dist > Cfg.ESP.MaxDist then
+            HideESPDraw(ESPDrawings[e.name])
+            continue
+        end
+
+        -- Drawing nesnelerini oluştur (yoksa)
+        CreateESPDraw(e.name)
+        local d = ESPDrawings[e.name]
+        if not d then continue end
+
+        local hp, maxHp = GetHP(e.char)
+        local hpRatio = math.clamp(hp / math.max(maxHp, 1), 0, 1)
+        local screenHead = Vector2.new(sp.X, sp.Y)
+        local screenFeet = Vector2.new(spFeet.X, spFeet.Y)
+        local boxH = math.abs(screenFeet.Y - screenHead.Y)
+        local boxW = boxH * 0.55
+
+        -- İsim
+        if Cfg.ESP.Name then
+            d.name.Text = e.name
+            d.name.Position = Vector2.new(sp.X, sp.Y - 18)
+            d.name.Color = Cfg.ESP.EnemyColor
+            d.name.Visible = true
+        else
+            d.name.Visible = false
+        end
+
+        -- HP + mesafe info
+        local infoText = ""
+        if Cfg.ESP.Distance then
+            infoText = string.format("[%.0fm]", dist)
+        end
+        if Cfg.ESP.Health then
+            if infoText ~= "" then infoText = infoText .. " " end
+            infoText = infoText .. string.format("HP:%.0f", hp)
+        end
+        if infoText ~= "" then
+            d.info.Text = infoText
+            d.info.Position = Vector2.new(sp.X, sp.Y - 5)
+            d.info.Visible = true
+        else
+            d.info.Visible = false
+        end
+
+        -- HP bar (sol tarafta dikey)
+        if Cfg.ESP.Health then
+            local barX = sp.X - boxW/2 - 6
+            local barTop = screenHead.Y
+            local barBot = screenFeet.Y
+            d.hpBg.From = Vector2.new(barX, barTop)
+            d.hpBg.To = Vector2.new(barX, barBot)
+            d.hpBg.Visible = true
+            local fillBot = barBot - (barBot - barTop) * hpRatio
+            d.hpFill.From = Vector2.new(barX, barBot)
+            d.hpFill.To = Vector2.new(barX, fillBot)
+            d.hpFill.Color = Color3.fromRGB(
+                math.floor((1-hpRatio)*255),
+                math.floor(hpRatio*220), 0)
+            d.hpFill.Visible = true
+        else
+            d.hpBg.Visible = false
+            d.hpFill.Visible = false
+        end
+
+        -- Box ESP
+        local topL = Vector2.new(sp.X - boxW/2, screenHead.Y)
+        local topR = Vector2.new(sp.X + boxW/2, screenHead.Y)
+        local botL = Vector2.new(sp.X - boxW/2, screenFeet.Y)
+        local botR = Vector2.new(sp.X + boxW/2, screenFeet.Y)
+
+        d.boxTL.From=topL; d.boxTL.To=topR; d.boxTL.Color=Cfg.ESP.EnemyColor; d.boxTL.Visible=true
+        d.boxTR.From=topR; d.boxTR.To=botR; d.boxTR.Color=Cfg.ESP.EnemyColor; d.boxTR.Visible=true
+        d.boxBL.From=botL; d.boxBL.To=botR; d.boxBL.Color=Cfg.ESP.EnemyColor; d.boxBL.Visible=true
+        d.boxBR.From=topL; d.boxBR.To=botL; d.boxBR.Color=Cfg.ESP.EnemyColor; d.boxBR.Visible=true
+
+        -- Tracer
+        d.tracer.From = center
+        d.tracer.To = Vector2.new(spFeet.X, spFeet.Y)
+        d.tracer.Color = Cfg.ESP.EnemyColor
+        d.tracer.Visible = true
     end
-end)
+
+    -- Artık düşman olmayan ESP'leri gizle
+    for name, d in pairs(ESPDrawings) do
+        if not activeNames[name] then HideESPDraw(d) end
+    end
+end
 
 -- ════════════════════════════════════════════════════════════════
 -- AIMBOT
@@ -594,6 +733,7 @@ local function GetTarget()
         local part = e.char:FindFirstChild(Cfg.Aimbot.Part)
                   or e.char:FindFirstChild("Head")
                   or e.char:FindFirstChild("HumanoidRootPart")
+                  or e.char:FindFirstChildWhichIsA("BasePart")
         if not part then continue end
         local sp, onScreen = Camera:WorldToViewportPoint(part.Position)
         if not onScreen then continue end
@@ -616,7 +756,6 @@ end)
 
 local radOK = false
 local rBG, rBD, rSelf, rLbl = nil, nil, nil, nil
-local rDots = {}
 pcall(function()
     rBG   = Drawing.new("Square"); rBG.Filled=true; rBG.Color=Color3.fromRGB(6,6,12); rBG.Transparency=0.38; rBG.Visible=false
     rBD   = Drawing.new("Square"); rBD.Filled=false; rBD.Thickness=1.5; rBD.Color=Color3.fromRGB(140,50,255); rBD.Visible=false
@@ -626,17 +765,8 @@ pcall(function()
     radOK = true
 end)
 
-local function RefreshDots()
-    for _,rd in pairs(rDots) do pcall(function() rd.d:Remove() end) end
-    rDots = {}
-    if not radOK then return end
-    for _, e in ipairs(GetEnemies()) do
-        local d = Drawing.new("Circle"); d.Filled=true; d.Radius=4; d.NumSides=8
-        d.Color=Cfg.ESP.EnemyColor; d.Visible=false
-        table.insert(rDots, {d=d, char=e.char})
-    end
-end
-if radOK then task.delay(6, RefreshDots) end
+-- Radar noktaları — her frame'de yeniden oluşturulacak
+local rDots = {}
 
 -- ════════════════════════════════════════════════════════════════
 -- NO RECOIL
@@ -663,7 +793,7 @@ RunService.RenderStepped:Connect(function()
         local vp = Camera.ViewportSize
         local center = Vector2.new(vp.X/2, vp.Y/2)
 
-        -- FOV
+        -- FOV çemberi
         if fovOK and fovC then
             fovC.Position = center
             fovC.Radius   = Cfg.Aimbot.FOV
@@ -681,6 +811,12 @@ RunService.RenderStepped:Connect(function()
 
         DoNoRecoil()
 
+        -- ESP güncelle (Drawing API)
+        UpdateESP()
+
+        -- BigHead sürekli uygula
+        if Cfg.BigHead.Enabled then ApplyBigHeadToEnemies() end
+
         -- Radar
         if radOK and Cfg.Radar.Enabled then
             local rs = Cfg.Radar.Size
@@ -695,27 +831,66 @@ RunService.RenderStepped:Connect(function()
             local lr = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("Head"))
             local lCF = lr and lr.CFrame or CFrame.new()
 
-            for _, rd in ipairs(rDots) do
+            -- Eski dot'ları temizle
+            for _,rd in pairs(rDots) do pcall(function() rd:Remove() end) end
+            rDots = {}
+
+            -- Düşmanlar (kırmızı nokta)
+            for _, e in ipairs(GetEnemies()) do
                 pcall(function()
-                    local dot  = rd.d
-                    local char = rd.char
-                    if not IsAlive(char) then dot.Visible=false; return end
-                    local r2 = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
-                    if not r2 then dot.Visible=false; return end
+                    if not IsAlive(e.char) then return end
+                    local r2 = e.char:FindFirstChild("HumanoidRootPart") or e.char:FindFirstChild("Head")
+                             or e.char:FindFirstChildWhichIsA("BasePart")
+                    if not r2 then return end
                     local rel = lCF:PointToObjectSpace(r2.Position)
                     local nx = rel.X / Cfg.Radar.Range
                     local nz = rel.Z / Cfg.Radar.Range
-                    if math.abs(nx)>1 or math.abs(nz)>1 then dot.Visible=false; return end
+                    if math.abs(nx)>1 or math.abs(nz)>1 then return end
+                    local dot = Drawing.new("Circle")
+                    dot.Filled=true; dot.Radius=4; dot.NumSides=8
+                    dot.Color = Cfg.ESP.EnemyColor
                     dot.Position = Vector2.new(
                         rx + rs/2 + nx * (rs/2) * Cfg.Radar.Scale,
                         ry + rs/2 - nz * (rs/2) * Cfg.Radar.Scale)
-                    dot.Color = Cfg.ESP.EnemyColor
                     dot.Visible = true
+                    table.insert(rDots, dot)
+                end)
+            end
+
+            -- Takım arkadaşları (yeşil nokta)
+            for _, t in ipairs(GetTeammates()) do
+                pcall(function()
+                    if not IsAlive(t.char) then return end
+                    local r2 = t.char:FindFirstChild("HumanoidRootPart") or t.char:FindFirstChild("Head")
+                             or t.char:FindFirstChildWhichIsA("BasePart")
+                    if not r2 then return end
+                    local rel = lCF:PointToObjectSpace(r2.Position)
+                    local nx = rel.X / Cfg.Radar.Range
+                    local nz = rel.Z / Cfg.Radar.Range
+                    if math.abs(nx)>1 or math.abs(nz)>1 then return end
+                    local dot = Drawing.new("Circle")
+                    dot.Filled=true; dot.Radius=3; dot.NumSides=8
+                    dot.Color = Cfg.ESP.TeamColor
+                    dot.Position = Vector2.new(
+                        rx + rs/2 + nx * (rs/2) * Cfg.Radar.Scale,
+                        ry + rs/2 - nz * (rs/2) * Cfg.Radar.Scale)
+                    dot.Visible = true
+                    table.insert(rDots, dot)
                 end)
             end
         elseif radOK then
             if rBG then rBG.Visible=false; rBD.Visible=false; rSelf.Visible=false; rLbl.Visible=false end
-            for _,rd in ipairs(rDots) do pcall(function() rd.d.Visible=false end) end
+            for _,rd in pairs(rDots) do pcall(function() rd:Remove() end) end
+            rDots = {}
+        end
+
+        -- Chams periyodik güncelle
+        if Cfg.Chams.Enabled then
+            for _, e in ipairs(GetEnemies()) do
+                if IsAlive(e.char) and not CHL[e.name] then
+                    SetChams(e.char, e.name, true)
+                end
+            end
         end
     end)
 end)
@@ -733,7 +908,7 @@ local TXD= Color3.fromRGB(140,120,190)
 local GREEN = Color3.fromRGB(60,220,100)
 
 local SG = Instance.new("ScreenGui")
-SG.Name="BSv9"; SG.ResetOnSpawn=false; SG.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
+SG.Name="BSv10"; SG.ResetOnSpawn=false; SG.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
 pcall(function() SG.Parent = game:GetService("CoreGui") end)
 if not SG.Parent then SG.Parent = LP.PlayerGui end
 
@@ -748,7 +923,7 @@ local Hdr=Instance.new("Frame"); Hdr.Size=UDim2.new(1,0,0,52); Hdr.BackgroundCol
 Instance.new("UICorner",Hdr).CornerRadius=UDim.new(0,12)
 local HFix=Instance.new("Frame"); HFix.Size=UDim2.new(1,0,0.5,0); HFix.Position=UDim2.new(0,0,0.5,0); HFix.BackgroundColor3=D2; HFix.BorderSizePixel=0; HFix.Parent=Hdr
 local HA=Instance.new("Frame"); HA.Size=UDim2.new(0,4,0.6,0); HA.Position=UDim2.new(0,9,0.2,0); HA.BackgroundColor3=P1; HA.BorderSizePixel=0; HA.Parent=Hdr; Instance.new("UICorner",HA).CornerRadius=UDim.new(1,0)
-local HT=Instance.new("TextLabel"); HT.Size=UDim2.new(1,-20,0,24); HT.Position=UDim2.new(0,20,0,5); HT.BackgroundTransparency=1; HT.Text="BLOXSTRIKE ULTRA  v9.0"; HT.TextColor3=TX; HT.Font=Enum.Font.GothamBold; HT.TextSize=14; HT.TextXAlignment=Enum.TextXAlignment.Left; HT.Parent=Hdr
+local HT=Instance.new("TextLabel"); HT.Size=UDim2.new(1,-20,0,24); HT.Position=UDim2.new(0,20,0,5); HT.BackgroundTransparency=1; HT.Text="BLOXSTRIKE ULTRA  v10.0"; HT.TextColor3=TX; HT.Font=Enum.Font.GothamBold; HT.TextSize=14; HT.TextXAlignment=Enum.TextXAlignment.Left; HT.Parent=Hdr
 local HS=Instance.new("TextLabel"); HS.Size=UDim2.new(1,-20,0,14); HS.Position=UDim2.new(0,20,0,32); HS.BackgroundTransparency=1; HS.Text="RightShift = Menü  ·  E = Aimbot"; HS.TextColor3=TXD; HS.Font=Enum.Font.Gotham; HS.TextSize=10; HS.TextXAlignment=Enum.TextXAlignment.Left; HS.Parent=Hdr
 
 local Sc=Instance.new("ScrollingFrame"); Sc.Size=UDim2.new(1,-8,1,-60); Sc.Position=UDim2.new(0,4,0,56)
@@ -872,7 +1047,8 @@ Tog(SRad,"Mini Radar",Cfg.Radar.Enabled,function(v)
     Cfg.Radar.Enabled=v
     if not v and radOK then
         if rBG then rBG.Visible=false; rBD.Visible=false; rSelf.Visible=false; rLbl.Visible=false end
-        for _,rd in ipairs(rDots) do pcall(function() rd.d.Visible=false end) end
+        for _,rd in pairs(rDots) do pcall(function() rd:Remove() end) end
+        rDots = {}
     end
 end)
 
@@ -909,11 +1085,14 @@ for _, k in ipairs(KnifeNames) do
 end
 
 local SBH = Sec("Big Head","🦣")
-Tog(SBH,"Big Head",Cfg.BigHead.Enabled,function(v) Cfg.BigHead.Enabled=v; ApplyBigHeadAll(v) end)
-Btn(SBH,"S (2x)",function() Cfg.BigHead.Scale=2; if Cfg.BigHead.Enabled then ApplyBigHeadAll(true) end end)
-Btn(SBH,"M (3.5x)",function() Cfg.BigHead.Scale=3.5; if Cfg.BigHead.Enabled then ApplyBigHeadAll(true) end end)
-Btn(SBH,"L (5x)",function() Cfg.BigHead.Scale=5; if Cfg.BigHead.Enabled then ApplyBigHeadAll(true) end end)
-Btn(SBH,"XL (8x)",function() Cfg.BigHead.Scale=8; if Cfg.BigHead.Enabled then ApplyBigHeadAll(true) end end)
+Tog(SBH,"Big Head (Düşman)",Cfg.BigHead.Enabled,function(v)
+    Cfg.BigHead.Enabled=v
+    if not v then ResetBigHead() end
+end)
+Btn(SBH,"S (2x)",function() Cfg.BigHead.Scale=2 end)
+Btn(SBH,"M (3.5x)",function() Cfg.BigHead.Scale=3.5 end)
+Btn(SBH,"L (5x)",function() Cfg.BigHead.Scale=5 end)
+Btn(SBH,"XL (8x)",function() Cfg.BigHead.Scale=8 end)
 
 local SSet = Sec("Ayarları Kaydet","💾")
 Btn(SSet,"💾  Ayarları Kaydet",function()
@@ -950,7 +1129,7 @@ end
 
 -- Başlangıç bildirimleri
 task.delay(1.5, function()
-    Notif("⚡ BloxStrike Ultra v9  |  RShift=Menü  |  E=Aim", 4, P1)
+    Notif("⚡ BloxStrike Ultra v10  |  Drawing ESP  |  RShift=Menü", 4, P1)
     if saved then
         task.delay(4.5, function() Notif("💾 Önceki ayarlar yüklendi!", 3, GREEN) end)
     end
@@ -960,19 +1139,25 @@ end)
 task.delay(8, function()
     local team = GetMyTeam()
     local myChar = GetMyChar()
-    if team then
-        Notif("✅ Takım: "..team.."  |  Karakter: "..(myChar and "✅" or "❌"), 4, GREEN)
-    else
-        Notif("⚠️  Takım tespit edilemedi — tüm oyuncular hedef", 4, Color3.fromRGB(255,180,30))
+    local enemies = GetEnemies()
+    Notif("✅ Takım: "..(team or "?").."  |  Düşman: "..#enemies.."  |  Char: "..(myChar and "✅" or "❌"), 5, GREEN)
+end)
+
+-- Başlangıçta skin uygula
+task.spawn(function()
+    task.wait(3)
+    if Cfg.Skin.Enabled then ApplyBodySkin(Cfg.Skin.Preset) end
+end)
+
+-- Temizlik: script yeniden çalıştırılırsa eski ESP'leri temizle
+game:GetService("CoreGui").ChildRemoved:Connect(function(child)
+    if child.Name == "BSv10" then
+        for name, d in pairs(ESPDrawings) do RemoveESPDraw(name) end
+        if fovC then pcall(function() fovC:Remove() end) end
+        for _,rd in pairs(rDots) do pcall(function() rd:Remove() end) end
+        if rBG then pcall(function() rBG:Remove(); rBD:Remove(); rSelf:Remove(); rLbl:Remove() end) end
     end
 end)
 
--- Başlangıçta skin ve bighead uygula
-task.spawn(function()
-    task.wait(2.5)
-    if Cfg.Skin.Enabled then ApplyBodySkin(Cfg.Skin.Preset) end
-    if Cfg.BigHead.Enabled then ApplyBigHeadAll(true) end
-end)
-
-print("[BSUltra v9] ✅ Hazır — LP.Character nil sorunu düzeltildi")
-print("[v9] Output'u gör: takım ve karakter durumu")
+print("[BSUltra v10] ✅ Drawing ESP — Humanoid bağımlılığı kaldırıldı")
+print("[v10] Takım:", GetMyTeam(), "| Char:", GetMyChar() and "✅" or "❌")
